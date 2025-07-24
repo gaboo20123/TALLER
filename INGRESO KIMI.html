@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Taller Mecánico Pro</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--  Tailwind + SweetAlert  -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!--  Google Sheets API helper (no backend)  -->
+<script src="https://cdn.jsdelivr.net/npm/tabletop@1.6.2/src/tabletop.min.js"></script>
+<style>
+ body{background:#f3f4f6;font-family:system-ui;}
+ .section{display:none;}
+ .active{display:block;}
+ nav a{cursor:pointer}
+</style>
+</head>
+<body class="bg-gray-100">
+
+<!-- ===== NAV ===== -->
+<header class="bg-gray-800 text-white p-4">
+  <h1 class="text-2xl font-bold text-center">Taller Mecánico Pro</h1>
+  <nav class="flex justify-center gap-4 mt-2 text-sm">
+    <a onclick="show('registrar')" class="hover:underline">Registrar Vehículo</a>
+    <a onclick="show('lista')" class="hover:underline">Lista Vehículos</a>
+    <a onclick="show('caja')" class="hover:underline">Caja Diaria</a>
+    <a onclick="show('analisis')" class="hover:underline">Análisis</a>
+  </nav>
+</header>
+
+<!-- ===== CONFIG (change only this) ===== -->
+<script>
+  const SHEET_ID = 'YOUR_SHEET_ID_HERE';           // <-- PASTE HERE
+  const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
+  const SHEET_PUBLIC = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?`;
+</script>
+
+<!-- ===== SECTIONS ===== -->
+<main class="max-w-4xl mx-auto p-4">
+
+<!-- REGISTRAR -->
+<section id="registrar" class="section active bg-white rounded shadow p-6">
+  <h2 class="text-xl mb-4">Registrar Vehículo</h2>
+  <form id="formVehiculo" class="grid gap-4">
+    <input name="Patente" placeholder="Patente" required class="border p-2">
+    <input name="Propietario" placeholder="Propietario" required class="border p-2">
+    <input name="Telefono" placeholder="Teléfono" class="border p-2">
+    <select name="Tipo" class="border p-2"><option>Auto</option><option>Camioneta</option><option>Camión</option><option>Moto</option></select>
+    <input name="Marca" placeholder="Marca" class="border p-2">
+    <input name="ImagenURL" type="url" placeholder="URL de imagen (drive, imgur…)" class="border p-2">
+    <select name="Daños" class="border p-2"><option>Sin Daños</option><option>Con Daños</option></select>
+    <select name="EstadoTrabajo" class="border p-2"><option>Pendiente</option><option>En Revisión</option><option>Reparado</option></select>
+    <input name="FechaIngreso" type="date" required class="border p-2">
+    <input name="FechaSalida" type="date" class="border p-2">
+    <textarea name="Trabajos" placeholder="Trabajos realizados" class="border p-2"></textarea>
+    <textarea name="Declaracion" placeholder="Declaración del cliente" class="border p-2"></textarea>
+    <select name="Pago" class="border p-2"><option>No Pagado</option><option>Pagado</option></select>
+    <button class="bg-blue-600 text-white py-2 rounded">Guardar</button>
+  </form>
+</section>
+
+<!-- LISTA -->
+<section id="lista" class="section bg-white rounded shadow p-6">
+  <h2 class="text-xl mb-4">Lista de Vehículos</h2>
+  <button onclick="exportTable('Vehiculos')" class="bg-green-600 text-white px-3 py-1 rounded mb-2">Exportar Excel</button>
+  <div id="tblVehiculos" class="overflow-auto"></div>
+</section>
+
+<!-- CAJA -->
+<section id="caja" class="section bg-white rounded shadow p-6">
+  <h2 class="text-xl mb-4">Caja Diaria</h2>
+  <form id="formCaja" class="grid gap-4">
+    <input name="Fecha" type="date" required class="border p-2">
+    <select name="Tipo" class="border p-2"><option>Ingreso</option><option>Egreso</option></select>
+    <select name="Metodo" class="border p-2"><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option></select>
+    <input name="Monto" type="number" step="0.01" required placeholder="Monto" class="border p-2">
+    <textarea name="Descripcion" placeholder="Descripción" class="border p-2"></textarea>
+    <button class="bg-blue-600 text-white py-2 rounded">Registrar</button>
+  </form>
+  <button onclick="exportTable('Caja')" class="bg-green-600 text-white px-3 py-1 rounded mt-4">Exportar Excel</button>
+  <div id="tblCaja" class="overflow-auto mt-4"></div>
+</section>
+
+<!-- ANALISIS -->
+<section id="analisis" class="section bg-white rounded shadow p-6">
+  <h2 class="text-xl mb-4">Análisis de Caja</h2>
+  <div class="grid grid-cols-2 gap-4">
+    <input id="ini" type="date" class="border p-2">
+    <input id="fin" type="date" class="border p-2">
+  </div>
+  <button onclick="analizar()" class="bg-blue-600 text-white px-3 py-1 rounded mt-2">Analizar</button>
+  <div id="resumen" class="mt-4 font-mono"></div>
+</section>
+
+</main>
+
+<!-- ===== LOGIC ===== -->
+<script>
+// --- Router ---
+function show(id){
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id==='registrar'?'registrar':id==='lista'?'lista':id==='caja'?'caja':'analisis').classList.add('active');
+}
+
+// --- Google Sheets Helpers ---
+function appendRow(tabla,data){
+  const url = `https://sheet2api.com/v1/${SHEET_ID}/${tabla}`;
+  fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+  .then(r=>r.ok?Swal.fire('Guardado','','success'):Promise.reject())
+  .catch(()=>Swal.fire('Error','','error'));
+}
+function loadTable(tabla,divId){
+  Tabletop.init({key: SHEET_PUBLIC, callback:(data,tabletop)=>{
+      const rows = (data[tabla].elements || []);
+      let html = '<table class="w-full text-sm"><thead><tr>';
+      if(rows.length){
+        Object.keys(rows[0]).forEach(k=>html+=`<th class="border p-1">${k}</th>`);
+        html+='</tr></thead><tbody>';
+        rows.forEach(r=>{
+          html+='<tr>';
+          Object.values(r).forEach(v=>html+=`<td class="border p-1">${v||''}</td>`);
+          html+='</tr>';
+        });
+      }
+      html+='</tbody></table>';
+      document.getElementById(divId).innerHTML = html;
+    }, simpleSheet:false});
+}
+
+// --- Forms ---
+document.getElementById('formVehiculo').onsubmit = function(e){
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(this));
+  appendRow('Vehiculos',data);
+  this.reset();
+};
+document.getElementById('formCaja').onsubmit = function(e){
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(this));
+  appendRow('Caja',data);
+  this.reset();
+  loadTable('Caja','tblCaja');
+};
+
+// --- Export ---
+function exportTable(tabla){
+  const a = document.createElement('a');
+  a.href = `https://sheet2api.com/v1/${SHEET_ID}/${tabla}/export?format=xlsx`;
+  a.download = tabla+'.xlsx';
+  a.click();
+}
+
+// --- Analisis ---
+function analizar(){
+  const ini = new Date(document.getElementById('ini').value);
+  const fin = new Date(document.getElementById('fin').value);
+  Tabletop.init({key: SHEET_PUBLIC, callback:(data)=>{
+    const rows = (data.Caja.elements || [])
+      .filter(r=>{const d=new Date(r.Fecha); return d>=ini && d<=fin});
+    let ing=0,eg=0,met={Efectivo:0,Transferencia:0,Tarjeta:0};
+    rows.forEach(r=>{
+      const m = parseFloat(r.Monto);
+      if(r.Tipo==='Ingreso') ing+=m;
+      else { eg+=m; met[r.Metodo]+=m; }
+    });
+    document.getElementById('resumen').innerHTML = `
+      Ingresos: $${ing.toFixed(2)}<br>
+      Egresos: $${eg.toFixed(2)}<br>
+      Balance: $${(ing-eg).toFixed(2)}<br>
+      Efectivo: $${met.Efectivo.toFixed(2)}<br>
+      Transferencia: $${met.Transferencia.toFixed(2)}<br>
+      Tarjeta: $${met.Tarjeta.toFixed(2)}
+    `;
+  }, simpleSheet:false});
+}
+
+// --- Initial load ---
+loadTable('Vehiculos','tblVehiculos');
+loadTable('Caja','tblCaja');
+</script>
+</body>
+</html>
